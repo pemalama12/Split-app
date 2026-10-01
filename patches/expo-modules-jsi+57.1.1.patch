@@ -1,0 +1,12 @@
+diff --git a/node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh b/node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh
+index c83b314..3c32b65 100755
+--- a/node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh
++++ b/node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh
+@@ -239,6 +239,7 @@ build_slice() {
+     SWIFT_COMPILATION_MODE=wholemodule \
+     CLANG_ENABLE_CODE_COVERAGE=NO \
+     CLANG_COVERAGE_MAPPING=NO \
++    CODE_SIGNING_ALLOWED=NO \
+   )
+ 
+   local product_path="${BUILD_PRODUCTS_PATH}/${build_dir_name}"
