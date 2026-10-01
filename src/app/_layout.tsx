@@ -10,7 +10,7 @@ import { mockConvex } from "@/lib/mockConvex";
 
 const clerkKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
-const convex = convexUrl ? new ConvexReactClient(convexUrl, { unsavedChangesWarning: false }) : mockConvex;
+const convex = convexUrl ? new ConvexReactClient(convexUrl, { unsavedChangesWarning: false }) : __DEV__ ? mockConvex : null;
 
 function Navigator() {
   const { isLoaded, isSignedIn } = useAuth();
@@ -33,7 +33,7 @@ function Navigator() {
 }
 
 export default function RootLayout() {
-  if (!clerkKey) return <View style={styles.config}><Text style={styles.brand}>SplitSimple</Text><Text style={styles.configTitle}>Add your Clerk key</Text><Text style={styles.configBody}>Set EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY in .env.local, then restart Expo.</Text></View>;
+  if (!clerkKey || !convex) return <View style={styles.config}><Text style={styles.brand}>SplitSimple</Text><Text style={styles.configTitle}>{!clerkKey ? "Add your Clerk key" : "Connect your services"}</Text><Text style={styles.configBody}>{!clerkKey ? "Set EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY in .env.local, then restart Expo." : "Set EXPO_PUBLIC_CONVEX_URL, then restart the app."}</Text></View>;
   return <ClerkProvider publishableKey={clerkKey} tokenCache={tokenCache}><ConvexProviderWithClerk client={convex as any} useAuth={useAuth}><Navigator /></ConvexProviderWithClerk></ClerkProvider>;
 }
 

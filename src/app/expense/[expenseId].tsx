@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Image, StyleSheet, Text, View } from "react-native";
 import { Avatar, Button, Card, EmptyState, LoadingState, PageHeader, SectionHeader } from "@/components/ui";
 import { colors } from "@/constants/theme";
+import { errorMessage } from "@/lib/errors";
 import { formatMoney } from "@/lib/money";
 
 export default function ExpenseDetailScreen() {
@@ -11,7 +12,7 @@ export default function ExpenseDetailScreen() {
   if (data === undefined) return <LoadingState label="Loading expense…" />; if (!data) return <EmptyState icon="?" title="Expense not found" body="It may have been deleted." />;
   const { expense, members, receiptUrl } = data; const names = new Map<string, string>(members.map((member: any) => [member._id, member.name]));
   function edit() { router.push({ pathname: expense.splitType === "receipt" ? "/group/[groupId]/receipt" : "/group/[groupId]/expense", params: { groupId: expense.groupId, expenseId } }); }
-  function confirmDelete() { Alert.alert("Delete this expense?", "Balances will be recalculated immediately.", [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => void remove({ expenseId }).then(() => router.back()) }]); }
+  function confirmDelete() { Alert.alert("Delete this expense?", "Balances will be recalculated immediately.", [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => void remove({ expenseId }).then(() => router.back()).catch((error) => Alert.alert("Couldn’t delete expense", errorMessage(error))) }]); }
   return <View style={styles.page}><View style={styles.content}><PageHeader eyebrow={expense.splitType === "receipt" ? "Receipt expense" : "Expense"} title={expense.description} subtitle={`${new Date(expense.date).toLocaleDateString()} · ${names.get(expense.payerId)} paid`} /><Card style={styles.hero}><Text style={styles.total}>{formatMoney(expense.amount)}</Text><Text style={styles.totalLabel}>total</Text></Card>{receiptUrl ? <Image source={{ uri: receiptUrl }} style={styles.receipt} /> : null}
     {expense.items?.length ? <><SectionHeader title="Receipt items" />{expense.items.map((item: any) => <Card key={item.key} style={styles.row}><View style={styles.copy}><Text style={styles.itemName}>{item.name}</Text><Text style={styles.meta}>{item.assigneeIds.map((id: string) => names.get(id)).join(", ")}</Text></View><Text style={styles.amount}>{formatMoney(item.amount)}</Text></Card>)}</> : null}
     <SectionHeader title="Split" />{expense.shares.map((share: any) => <Card key={share.memberId} style={styles.row}><Avatar name={names.get(share.memberId) ?? "Member"} size={36} /><Text style={styles.member}>{names.get(share.memberId)}</Text><Text style={styles.amount}>{formatMoney(share.amount)}</Text></Card>)}

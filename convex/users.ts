@@ -25,7 +25,11 @@ export const sync = mutation({
     const name = args.name.trim().replace(/\s+/g, " ");
     const values = { name, email: args.email.trim().toLowerCase(), updatedAt: Date.now() };
     if (existing) {
-      await ctx.db.patch(existing._id, values);
+      await ctx.db.patch(existing._id, {
+        email: values.email,
+        updatedAt: values.updatedAt,
+        ...(existing.name.trim() ? {} : { name: values.name }),
+      });
       return existing._id;
     }
     return await ctx.db.insert("users", { clerkId, ...values });
