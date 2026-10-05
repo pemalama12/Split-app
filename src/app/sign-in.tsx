@@ -7,14 +7,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ErrorBanner } from "@/components/ui";
-import { errorMessage } from "@/lib/errors";
+import { useToast } from "@/components/toast";
 
 type Step = "welcome" | "email" | "code";
 type AuthAttempt = "signIn" | "signUp";
@@ -31,7 +31,7 @@ export default function SignInScreen() {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const { showToast } = useToast();
   const codeInput = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -41,7 +41,6 @@ export default function SignInScreen() {
   }, [step]);
 
   function goBack() {
-    setError("");
     setCode("");
     if (step === "code") {
       Keyboard.dismiss();
@@ -51,56 +50,69 @@ export default function SignInScreen() {
     }
   }
 
+  function showAuthError(error: unknown, fallback: string) {
+    const code = (error as { code?: string } | null)?.code;
+    const message = (error as { message?: string } | null)?.message ?? "";
+    if (code === "form_identifier_not_found") {
+      showToast("No account found for that email. Choose Create account to get started.");
+    } else if (code === "form_identifier_exists") {
+      showToast("That email already has an account. Choose Sign in instead.");
+    } else if (/code|verification/i.test(code ?? "") || /code|verification/i.test(message)) {
+      showToast("That code isn’t correct or has expired. Check your email and try again.");
+    } else if (/email|identifier/i.test(code ?? "") || /email|identifier/i.test(message)) {
+      showToast("Enter a valid email address and try again.");
+    } else {
+      showToast(fallback);
+    }
+  }
+
   async function prepareSignIn() {
     const { error: createError } = await signIn.create({ identifier: email.trim() });
-    if (createError?.code === "form_identifier_not_found") return false;
-    if (createError) throw new Error(createError.message);
+    if (createError) throw createError;
     const { error: sendError } = await signIn.emailCode.sendCode({ emailAddress: email.trim() });
-    if (sendError) throw new Error(sendError.message);
-    setAttempt("signIn");
-    return true;
+    if (sendError) throw sendError;
   }
 
   async function prepareSignUp() {
     const { error: createError } = await signUp.create({ emailAddress: email.trim() });
-    if (createError) throw new Error(createError.message);
+    if (createError) throw createError;
     const { error: sendError } = await signUp.verifications.sendEmailCode();
-    if (sendError) throw new Error(sendError.message);
-    setAttempt("signUp");
+    if (sendError) throw sendError;
   }
 
   async function sendCode() {
-    setError("");
     setLoading(true);
     try {
-      const existingUser = await prepareSignIn();
-      if (!existingUser) await prepareSignUp();
+      if (attempt === "signIn") await prepareSignIn();
+      else await prepareSignUp();
       setStep("code");
     } catch (err) {
-      setError(errorMessage(err));
+      showAuthError(err, "We couldn’t send a code. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
   }
 
   async function verifyCode(verificationCode = code) {
-    if (verificationCode.length !== 6) return;
-    setError("");
+    if (verificationCode.length !== 6) {
+      showToast("Enter the 6-digit code from your email.");
+      return;
+    }
     setLoading(true);
     try {
       if (attempt === "signIn") {
         const { error: verifyError } = await signIn.emailCode.verifyCode({ code: verificationCode });
-        if (verifyError) throw new Error(verifyError.message);
-        if (signIn.status !== "complete") throw new Error("That code could not be verified.");
-        await signIn.finalize({ navigate: () => {} });
+        if (verifyError) throw verifyError;
+        const { error: finalizeError } = await signIn.finalize({ navigate: () => {} });
+        if (finalizeError) throw finalizeError;
       } else {
         const { error: verifyError } = await signUp.verifications.verifyEmailCode({ code: verificationCode });
-        if (verifyError) throw new Error(verifyError.message);
-        if (signUp.status !== "complete") throw new Error("That code could not be verified.");
-        await signUp.finalize({ navigate: () => {} });
+        if (verifyError) throw verifyError;
+        const { error: finalizeError } = await signUp.finalize({ navigate: () => {} });
+        if (finalizeError) throw finalizeError;
       }
     } catch (err) {
-      setError(errorMessage(err));
+      showAuthError(err, "We couldn’t verify that code. Try again in a moment.");
     } finally {
       setLoading(false);
     }
@@ -109,7 +121,7 @@ export default function SignInScreen() {
   if (step === "welcome") {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.welcome}>
+        <ScrollView contentContainerStyle={styles.welcome} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={styles.brandBlock}>
             <View style={styles.logo} accessibilityLabel="Split-app logo">
               <View style={styles.logoLeft} />
@@ -127,8 +139,11 @@ export default function SignInScreen() {
             <Image source={require("../../assets/images/auth-friends.png")} resizeMode="contain" style={styles.illustration} />
           </View>
 
-          <PrimaryButton label="Get started" onPress={() => setStep("email")} />
-        </View>
+          <PrimaryButton label="Sign in" onPress={() => { setAttempt("signIn"); setStep("email"); }} />
+          <Pressable accessibilityRole="button" onPress={() => { setAttempt("signUp"); setStep("email"); }} style={styles.secondaryAction}>
+            <Text style={styles.secondaryActionText}>Create account</Text>
+          </Pressable>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -140,10 +155,11 @@ export default function SignInScreen() {
           <Text style={styles.backGlyph}>‹</Text>
         </Pressable>
 
+        <ScrollView contentContainerStyle={styles.formScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         {step === "email" ? (
           <View style={styles.emailContent}>
-            <Text style={styles.formTitle}>Enter your email</Text>
-            <Text style={styles.formSubtitle}>We’ll send you a verification code{"\n"}to sign in to Split-app.</Text>
+            <Text style={styles.formTitle}>{attempt === "signUp" ? "Create your account" : "Welcome back"}</Text>
+            <Text style={styles.formSubtitle}>{attempt === "signUp" ? "Enter your email and we’ll send a verification code." : "Enter your email and we’ll send a sign-in code."}</Text>
 
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Email address</Text>
@@ -160,8 +176,10 @@ export default function SignInScreen() {
               />
             </View>
 
-            {error ? <ErrorBanner message={error} /> : null}
-            <PrimaryButton disabled={!email.trim().includes("@")} label="Send code" loading={loading || signInStatus === "fetching" || signUpStatus === "fetching"} onPress={sendCode} />
+            <PrimaryButton disabled={!email.trim().includes("@")} label={attempt === "signUp" ? "Create account" : "Send code"} loading={loading || signInStatus === "fetching" || signUpStatus === "fetching"} onPress={sendCode} />
+            <Pressable accessibilityRole="button" disabled={loading} onPress={() => setAttempt(attempt === "signIn" ? "signUp" : "signIn")} style={styles.switchAttempt}>
+              <Text style={styles.switchAttemptText}>{attempt === "signIn" ? "New to Split-app? Create account" : "Already have an account? Sign in"}</Text>
+            </Pressable>
           </View>
         ) : (
           <View style={styles.codeContent}>
@@ -192,7 +210,6 @@ export default function SignInScreen() {
               />
             </Pressable>
 
-            {error ? <ErrorBanner message={error} /> : null}
             {loading ? <ActivityIndicator color={BLUE} style={styles.codeLoader} /> : null}
 
             <View style={styles.resendRow}>
@@ -203,6 +220,7 @@ export default function SignInScreen() {
             </View>
           </View>
         )}
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -224,7 +242,7 @@ function PrimaryButton({ disabled, label, loading, onPress }: { disabled?: boole
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#FFFFFF" },
   flex: { flex: 1 },
-  welcome: { flex: 1, paddingHorizontal: 24, paddingTop: 95, paddingBottom: 10 },
+  welcome: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 64, paddingBottom: 24 },
   brandBlock: { alignItems: "center" },
   logo: { width: 63, height: 46, marginBottom: 10 },
   logoLeft: { position: "absolute", left: 4, top: 1, width: 43, height: 43, borderRadius: 22, backgroundColor: "#006BFA" },
@@ -234,15 +252,18 @@ const styles = StyleSheet.create({
   headline: { color: INK, fontSize: 25, lineHeight: 28, fontWeight: "700", letterSpacing: -0.55, textAlign: "center" },
   subtitle: { color: MUTED, fontSize: 15, lineHeight: 22, textAlign: "center", marginTop: 13 },
   illustrationWrap: { flex: 1, minHeight: 220, justifyContent: "flex-end", marginHorizontal: -24, overflow: "hidden" },
-  illustration: { width: "116%", height: "100%", alignSelf: "center", transform: [{ translateY: 14 }] },
+  illustration: { width: "116%", height: 270, alignSelf: "center", transform: [{ translateY: 14 }] },
   primaryButton: { height: 54, borderRadius: 18, backgroundColor: BLUE, alignItems: "center", justifyContent: "center" },
   primaryButtonPressed: { backgroundColor: "#0868E8", transform: [{ scale: 0.99 }] },
   primaryButtonDisabled: { opacity: 1 },
   primaryButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600", letterSpacing: -0.15 },
+  secondaryAction: { minHeight: 42, alignItems: "center", justifyContent: "center", marginTop: 4 },
+  secondaryActionText: { color: BLUE, fontSize: 16, fontWeight: "600" },
   backButton: { position: "absolute", zIndex: 2, top: 28, left: 18, width: 40, height: 42, justifyContent: "center" },
   backGlyph: { color: INK, fontSize: 38, lineHeight: 38, fontWeight: "300" },
-  emailContent: { paddingHorizontal: 24, paddingTop: 240 },
-  codeContent: { paddingHorizontal: 20, paddingTop: 224, alignItems: "center" },
+  formScroll: { flexGrow: 1 },
+  emailContent: { flex: 1, paddingHorizontal: 24, paddingTop: 150, paddingBottom: 32 },
+  codeContent: { flex: 1, paddingHorizontal: 20, paddingTop: 150, paddingBottom: 32, alignItems: "center" },
   formTitle: { color: INK, fontSize: 22, lineHeight: 28, fontWeight: "700", letterSpacing: -0.45, textAlign: "center" },
   formSubtitle: { color: MUTED, fontSize: 15, lineHeight: 21, textAlign: "center", marginTop: 13 },
   emailAddress: { color: INK, fontSize: 15, lineHeight: 21, textAlign: "center" },
@@ -257,5 +278,7 @@ const styles = StyleSheet.create({
   resendRow: { flexDirection: "row", alignItems: "center", marginTop: 24 },
   resendPrompt: { color: MUTED, fontSize: 14 },
   resend: { color: BLUE, fontSize: 14, fontWeight: "500" },
+  switchAttempt: { alignSelf: "center", minHeight: 44, justifyContent: "center", marginTop: 12 },
+  switchAttemptText: { color: BLUE, fontSize: 14, fontWeight: "600" },
   codeLoader: { marginTop: 16 },
 });

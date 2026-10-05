@@ -5,10 +5,20 @@ export const list = query({
   args: {},
   handler: async (ctx) => {
     const { clerkId } = await requireClerkId(ctx);
-    const groups = await ctx.db
+    const ownedGroups = await ctx.db
       .query("groups")
       .withIndex("by_owner", (q) => q.eq("ownerClerkId", clerkId))
       .collect();
+    const memberships = await ctx.db
+      .query("members")
+      .withIndex("by_linked_user", (q) => q.eq("linkedClerkId", clerkId))
+      .collect();
+    const joinedGroups = await Promise.all(
+      memberships
+        .filter((member) => !member.archived && member.membershipStatus !== "invited")
+        .map((member) => ctx.db.get(member.groupId)),
+    );
+    const groups = [...new Map([...ownedGroups, ...joinedGroups.filter(Boolean)].map((group) => [group!._id, group!])).values()];
     const entries: any[] = [];
     for (const group of groups) {
       const members = await ctx.db

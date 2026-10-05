@@ -25,10 +25,27 @@ export const sync = mutation({
     const name = args.name.trim().replace(/\s+/g, " ");
     const values = { name, email: args.email.trim().toLowerCase(), updatedAt: Date.now() };
     if (existing) {
-      await ctx.db.patch(existing._id, values);
+      await ctx.db.patch(existing._id, {
+        email: values.email,
+        updatedAt: values.updatedAt,
+        ...(existing.name.trim() ? {} : { name: values.name }),
+      });
+      const linked = await ctx.db
+        .query("members")
+        .withIndex("by_linked_user", (q) => q.eq("linkedClerkId", clerkId))
+        .collect();
+      for (const member of linked) {
+        if (member.userId !== existing._id) await ctx.db.patch(member._id, { userId: existing._id });
+      }
       return existing._id;
     }
-    return await ctx.db.insert("users", { clerkId, ...values });
+    const userId = await ctx.db.insert("users", { clerkId, ...values });
+    const linked = await ctx.db
+      .query("members")
+      .withIndex("by_linked_user", (q) => q.eq("linkedClerkId", clerkId))
+      .collect();
+    for (const member of linked) await ctx.db.patch(member._id, { userId });
+    return userId;
   },
 });
 
@@ -50,9 +67,8 @@ export const updateName = mutation({
     for (const member of linked) {
       const conflict = await ctx.db
         .query("members")
-        .withIndex("by_group", (q) => q.eq("groupId", member.groupId))
-        .filter((q) => q.eq(q.field("normalizedName"), name.toLocaleLowerCase()))
-        .first();
+        .withIndex("by_group_and_normalized_name", (q) => q.eq("groupId", member.groupId).eq("normalizedName", name.toLocaleLowerCase()))
+        .unique();
       if (conflict && conflict._id !== member._id) {
         throw new Error(`The name ${name} is already used in one of your groups.`);
       }

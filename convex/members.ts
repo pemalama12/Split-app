@@ -18,6 +18,8 @@ export const add = mutation({
     }
     return await ctx.db.insert("members", {
       groupId: args.groupId,
+      membershipType: "guest",
+      membershipStatus: "active",
       name,
       normalizedName,
       archived: false,

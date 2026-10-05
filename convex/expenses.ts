@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { groupLedger, requireOwnedGroup } from "./lib/auth";
+import { groupLedger, requireGroupMember } from "./lib/auth";
 import { calculateReceiptShares, splitEvenly } from "./lib/ledger";
 
 const splitType = v.union(v.literal("equal"), v.literal("custom"), v.literal("receipt"));
@@ -36,7 +36,7 @@ function validateCents(value: number, label: string, allowZero = false) {
 }
 
 async function prepareExpense(ctx: any, args: any) {
-  await requireOwnedGroup(ctx, args.groupId);
+  await requireGroupMember(ctx, args.groupId);
   const description = args.description.trim();
   if (!description || description.length > 100) throw new Error("Enter an expense name.");
   validateCents(args.amount, "Total");
@@ -45,7 +45,9 @@ async function prepareExpense(ctx: any, args: any) {
     .query("members")
     .withIndex("by_group", (q: any) => q.eq("groupId", args.groupId))
     .collect();
-  const memberIds = new Set(members.map((member: any) => member._id));
+  const memberIds = new Set(
+    members.filter((member: any) => !member.archived && member.membershipStatus !== "invited").map((member: any) => member._id),
+  );
   if (!memberIds.has(args.payerId)) throw new Error("Choose a payer from this group.");
 
   let shares: Array<{ memberId: any; amount: number }>;
@@ -105,7 +107,7 @@ export const get = query({
   handler: async (ctx, { expenseId }) => {
     const expense = await ctx.db.get(expenseId);
     if (!expense) return null;
-    await requireOwnedGroup(ctx, expense.groupId);
+    await requireGroupMember(ctx, expense.groupId);
     const members = await ctx.db
       .query("members")
       .withIndex("by_group", (q) => q.eq("groupId", expense.groupId))
@@ -145,7 +147,7 @@ export const remove = mutation({
   handler: async (ctx, { expenseId }) => {
     const expense = await ctx.db.get(expenseId);
     if (!expense) return;
-    await requireOwnedGroup(ctx, expense.groupId);
+    await requireGroupMember(ctx, expense.groupId);
     if (expense.receiptStorageId) await ctx.storage.delete(expense.receiptStorageId);
     await ctx.db.delete(expenseId);
   },
@@ -154,7 +156,7 @@ export const remove = mutation({
 export const generateUploadUrl = mutation({
   args: { groupId: v.id("groups") },
   handler: async (ctx, { groupId }) => {
-    await requireOwnedGroup(ctx, groupId);
+    await requireGroupMember(ctx, groupId);
     return await ctx.storage.generateUploadUrl();
   },
 });
